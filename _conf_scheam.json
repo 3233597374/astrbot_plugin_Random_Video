@@ -1,0 +1,8 @@
+{
+  "display_mode": {
+    "description": "发送方式",
+    "type": "string",
+    "default": "文件",
+    "options": ["文件", "聊天记录"]
+  }
+}
