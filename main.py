@@ -1,71 +1,85 @@
-# 适配 AstrBot v4.18.3 的正确导入
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import register, Star, Context
-from astrbot.api.event import AstrMessageEvent  # 移除不存在的 on_keyword
-from astrbot.api import register_filter  # v4.18.3 关键词注册API
 import astrbot.api.message_components as Comp
 import os
 import random
 
 
-# 插件信息（保留原有配置）
-@register("astrbot_plugin_Random_Video", "榴莲LL", "随机生成各种涩涩视频", "v1.0")
+# 插件信息（参考网文插件的register参数规范）
+@register("astrbot_plugin_Random_Video", "榴莲LL", "随机生成各种涩涩视频", "v1.0", "")
 class LocalVideoPlugin(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config=None):
         super().__init__(context)
+        self.config = config or {}
+
         # ===================== 配置项 =====================
-        self.video_folder = "Video"  # 视频文件夹名称（相对于插件根目录）
-        # 支持的视频格式（可根据需要添加，如.mov/.avi等）
-        self.supported_formats = (".mp4", ".mov", ".avi", ".mkv", ".flv")
+        # 支持从配置文件读取自定义文件夹名称，保持灵活性
+        self.video_folder = self.config.get("video_folder", "Video")
+        # 支持的视频格式（可通过配置扩展）
+        self.supported_formats = tuple(self.config.get("supported_formats", [".mp4", ".mov", ".avi", ".mkv", ".flv"]))
         # ==================================================
 
-        # 获取程序根目录
-        self.root_dir = os.path.dirname(os.path.abspath(__file__))
+        # 获取插件根目录（参考网文插件的路径处理方式）
+        self.plugin_root = os.path.dirname(os.path.abspath(__file__))
         # 拼接Video文件夹完整路径
-        self.video_folder_path = os.path.join(self.root_dir, self.video_folder)
+        self.video_folder_path = os.path.join(self.plugin_root, self.video_folder)
 
-        # 注册关键词触发（v4.18.3 方式：在初始化时注册）
-        self.register_keyword_handler()
-
-    # 新增：注册关键词触发函数
-    def register_keyword_handler(self):
-        @register_filter("涩涩")  # 替换原有的 @on_keyword("涩涩")
-        async def on_keyword_handler(event: AstrMessageEvent):
-            await self.handle_random_video(event)
-
-    # 核心逻辑：获取并发送随机视频（抽离成独立函数，便于维护）
-    async def handle_random_video(self, event: AstrMessageEvent):
+    # 参考网文插件的filter.command写法（核心修改）
+    @filter.command("涩涩", alias={'ss', '涩涩视频'})
+    async def random_video_handler(self, event: AstrMessageEvent):
+        """
+        关键词触发的核心处理函数
+        参考网文插件的handler写法，使用filter.command装饰器
+        """
         try:
             # 1. 获取所有视频文件
             all_videos = self.get_all_video_files()
 
             # 2. 检查是否有视频文件
             if not all_videos:
-                await event.send(
-                    f"Video文件夹中未找到可用视频！\n文件夹路径：{self.video_folder_path}\n支持格式：{self.supported_formats}")
+                error_msg = (
+                    f"❌ Video文件夹中未找到可用视频！\n"
+                    f"📁 文件夹路径：{self.video_folder_path}\n"
+                    f"🔍 支持格式：{self.supported_formats}"
+                )
+                yield event.plain_result(error_msg)
                 return
 
             # 3. 随机选择一个视频
             random_video_path = random.choice(all_videos)
 
-            # 4. 发送随机选中的视频
-            await event.send(Comp.Video(file=random_video_path))
-            # 可选：发送提示（方便调试）
-            # await event.send(f"已发送随机视频：{os.path.basename(random_video_path)}")
+            # 4. 发送随机选中的视频（参考网文插件的消息发送方式）
+            yield event.chain_result([
+                Comp.Video(file=random_video_path),
+                Comp.Plain(f"✅ 已发送随机视频：{os.path.basename(random_video_path)}")
+            ])
 
         except Exception as e:
-            await event.send(f"发送失败：{str(e)}")
+            yield event.plain_result(f"⚠️ 发送失败：{str(e)}")
 
-    # 原有方法：获取Video文件夹中的所有视频文件
+    # 原有方法：获取Video文件夹中的所有视频文件（优化路径处理）
     def get_all_video_files(self):
         video_files = []
         # 检查Video文件夹是否存在
         if not os.path.exists(self.video_folder_path):
+            # 自动创建空文件夹，避免首次使用报错
+            os.makedirs(self.video_folder_path, exist_ok=True)
             return video_files
 
-        # 遍历文件夹，筛选视频文件
-        for file in os.listdir(self.video_folder_path):
-            file_path = os.path.join(self.video_folder_path, file)
-            # 只保留文件 + 符合支持的格式
-            if os.path.isfile(file_path) and file.lower().endswith(self.supported_formats):
-                video_files.append(file_path)
+        # 遍历文件夹，筛选视频文件（增加异常处理）
+        try:
+            for file in os.listdir(self.video_folder_path):
+                file_path = os.path.join(self.video_folder_path, file)
+                # 只保留文件 + 符合支持的格式（忽略大小写）
+                if os.path.isfile(file_path) and file.lower().endswith(self.supported_formats):
+                    video_files.append(file_path)
+        except PermissionError:
+            # 处理文件夹权限问题
+            return []
+
         return video_files
+
+    # 参考网文插件的terminate方法，增加插件卸载清理
+    async def terminate(self):
+        """插件卸载时的清理操作"""
+        pass
