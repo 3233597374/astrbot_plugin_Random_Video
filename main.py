@@ -25,7 +25,7 @@ class LocalVideoPlugin(Star):
     @filter.command("涩涩", alias={'ss', '涩涩视频'})
     async def random_video_handler(self, event: AstrMessageEvent):
         """
-        关键词触发的核心处理函数
+        关键词触发后随机发送涩涩视频
         """
         try:
             # 获取所有视频文件
